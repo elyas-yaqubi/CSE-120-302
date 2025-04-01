@@ -1,3 +1,4 @@
+import scipy
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -37,7 +38,6 @@ else:
         new_dfs = []
         for uploaded_file in uploaded_files:
             try:
-                # Load only the specified number of rows
                 df_uploaded = pd.read_excel(uploaded_file, nrows=st.session_state["nrows"])
                 new_dfs.append(df_uploaded)
                 st.sidebar.success(f"Processed {uploaded_file.name}")
@@ -98,7 +98,8 @@ else:
         )
         
         st.sidebar.header("Advanced Filters")
-        min_mean_expr = st.sidebar.number_input("Minimum Mean Expression", min_value=0, value=10)
+        # Now the filter uses a threshold based on the minimum expression value.
+        min_mean_expr = st.sidebar.number_input("Minimum Expression Threshold", min_value=0, value=10)
         min_variance = st.sidebar.number_input("Minimum Variance", min_value=0.0, value=5.0)
         
         st.sidebar.subheader("Differential Expression Filtering")
@@ -132,18 +133,25 @@ else:
             if selected_gene != "All":
                 filtered_df = filtered_df[filtered_df["gene_id"].astype(str) == selected_gene]
             
-            # (b) Apply expression range filters for each group using masks
+            # (b) Apply expression range filters for each group using masks.
+            # Here we require that all expression values in a group are within the specified range.
             control_mask = filtered_df[control_cols].applymap(lambda x: control_min <= x <= control_max)
             p250_mask = filtered_df[p250_cols].applymap(lambda x: p250_min <= x <= p250_max)
             p350_mask = filtered_df[p350_cols].applymap(lambda x: p350_min <= x <= p350_max)
-            filtered_df = filtered_df[control_mask.any(axis=1) | p250_mask.any(axis=1) | p350_mask.any(axis=1)]
+            filtered_df = filtered_df[
+                control_mask.all(axis=1) & p250_mask.all(axis=1) & p350_mask.all(axis=1)
+            ]
             
-            # (c) Remove lowly expressed genes (based on mean expression)
-            mean_expr = filtered_df.iloc[:, 1:].mean(axis=1)
-            filtered_df = filtered_df[mean_expr >= min_mean_expr]
+            # Define expression columns (exclude gene_id)
+            expr_cols = filtered_df.columns.difference(["gene_id"])
+            
+            # (c) Remove lowly expressed genes (based on the minimum expression across conditions)
+            # This will remove genes that have any expression value below the threshold.
+            min_expr = filtered_df[expr_cols].min(axis=1)
+            filtered_df = filtered_df[min_expr >= min_mean_expr]
             
             # (d) Remove genes with low variance
-            variance_expr = filtered_df.iloc[:, 1:].var(axis=1)
+            variance_expr = filtered_df[expr_cols].var(axis=1)
             filtered_df = filtered_df[variance_expr >= min_variance]
             
             # (e) Differential Expression Filtering: compute log₂ fold change
@@ -156,22 +164,31 @@ else:
                 expr_cols = filtered_df.columns.difference(["gene_id", "log2FC"])
                 z_scores = np.abs(stats.zscore(filtered_df[expr_cols], nan_policy="omit"))
                 filtered_df = filtered_df[(z_scores < z_threshold).all(axis=1)]
-        
-        st.write(f"### Filtered Data ({len(filtered_df)} results)")
-        st.dataframe(filtered_df)
-        
+            
+            # (g) Optional Sorting by Maximum Gene Expression
+            sort_by_max = st.sidebar.checkbox("Sort by maximum gene expression", value=False)
+            if sort_by_max and not filtered_df.empty:
+                # Identify expression columns (exclude non-expression columns)
+                expr_cols = filtered_df.columns.difference(["gene_id", "log2FC"])
+                # Compute the maximum expression value across expression columns for each row
+                filtered_df["max_expression"] = filtered_df[expr_cols].max(axis=1)
+                # Sort by the maximum expression value in descending order
+                filtered_df = filtered_df.sort_values("max_expression", ascending=False)
+                # Optionally, drop the helper column after sorting
+                filtered_df = filtered_df.drop(columns="max_expression")
+
         # -------------------------------------------------------------
         # 6. Visualization Section
         # -------------------------------------------------------------
         st.write("## Visualization")
-        
+
         if selected_gene != "All" and not filtered_df.empty:
             # For a specific gene, show its expression as a bar chart
             gene_row = filtered_df.iloc[0]  # Should be a single row when a gene is selected
             gene_data = gene_row.drop(["gene_id", "log2FC"])
             gene_df = gene_data.reset_index()
             gene_df.columns = ["Condition", "Expression"]
-        
+
             st.write(f"### Expression for Gene {selected_gene}")
             bar_chart = alt.Chart(gene_df).mark_bar().encode(
                 x=alt.X("Condition:N", sort=None),
@@ -190,8 +207,11 @@ else:
                     tooltip=["count()"],
                 ).properties(width=800, height=400)
                 st.altair_chart(histogram)
-        
+
                 st.write("### Box Plot by Condition")
+                # Note: This box plot shows a statistical summary of the expression data for each condition.
+                # It displays the median, the interquartile range (IQR), and outliers,
+                # rather than plotting every individual data point.
                 boxplot = alt.Chart(melted_df).mark_boxplot().encode(
                     x="Condition:N",
                     y="Expression:Q",
