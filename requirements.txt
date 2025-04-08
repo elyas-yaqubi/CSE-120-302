@@ -6,4 +6,4 @@ altair
 openpyxl
 bcrypt
 sqlalchemy
-openai
+openai==0.28
