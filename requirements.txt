@@ -6,3 +6,4 @@ altair
 openpyxl
 bcrypt
 sqlalchemy
+openai
