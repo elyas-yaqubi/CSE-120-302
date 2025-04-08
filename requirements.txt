@@ -1,0 +1,7 @@
+scipy
+streamlit
+pandas
+numpy
+altair
+openpyxl
+bcrypt
