@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import altair as alt
 import time  # used to simulate a delay
+import openai
 from scipy import stats
 
 st.title("Organoids Gene Expression Filtering & Visualization App")
@@ -32,14 +33,45 @@ else:
     # 3. File Uploader: Upload Excel File(s)
     # -------------------------------------------------------------
     uploaded_files = st.sidebar.file_uploader("Upload Excel file(s)", type=["xlsx"], accept_multiple_files=True)
-
     if uploaded_files:
+
+        # Read the Excel file
+        
+
+
         new_dfs = []
         for uploaded_file in uploaded_files:
             try:
                 df_uploaded = pd.read_excel(uploaded_file, nrows=st.session_state["nrows"])
                 new_dfs.append(df_uploaded)
                 st.sidebar.success(f"Processed {uploaded_file.name}")
+                st.write("### Preview of the dataset:")
+                st.dataframe(df_uploaded.head())
+
+                    # User question input
+                user_question = st.text_input("Ask a question about the dataset:")
+
+                if user_question:
+                        # Construct the prompt for OpenAI
+                        prompt = f"Here is a dataset:\n{df_uploaded.head().to_string()}\n\nAnswer the following question based on this data:\n{user_question}"
+
+                        # OpenAI API call
+                        
+                        response = openai.ChatCompletion.create(
+                            model="gpt-3.5-turbo",
+                            messages=[
+                                {"role": "system", "content": "You are a data analyst."},
+                                {"role": "user", "content": prompt},
+                            ]
+                        )
+
+                        # Display response
+                        answer = response["choices"][0]["message"]["content"]
+                        st.write("### Answer:")
+                        st.write(answer)
+
+            except Exception as e:
+                    st.error(f"Error reading the Excel file: {e}")
             except Exception as e:
                 st.sidebar.error(f"Error processing {uploaded_file.name}: {e}")
         if new_dfs:
@@ -219,3 +251,5 @@ else:
                 st.altair_chart(boxplot)
             else:
                 st.write("No data available after filtering. Adjust your filters.")
+
+
